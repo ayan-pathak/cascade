@@ -98,7 +98,14 @@ namespace Cascade
 
     public static class Sessions
     {
-        class Entry { public long Length; public string Title, Cwd; public DateTime Last; }
+        // Turn: who spoke last in the main conversation. "end" = Claude finished its turn, "tool" = Claude
+        // asked to run Tool and no result has come back yet, "user" = a prompt or tool result, so Claude is on it.
+        // Asks: this turn put a question to you (the app's next-step box with answer buttons).
+        class Entry { public long Length; public string Title, Cwd, Turn, Tool, Carry = ""; public DateTime Last, TurnAt; public bool Asks; }
+        const string AskBox = "\"name\":\"mcp__ccd_turn__wrap_up\"";
+        static readonly Regex stopRx = new Regex("\"stop_reason\":\"([a-z_]+)\"");
+        static readonly Regex toolRx = new Regex("\"type\":\"tool_use\",\"id\":\"[^\"]*\",\"name\":\"([^\"]+)\"");
+        static readonly HashSet<string> askTools = new HashSet<string> { "AskUserQuestion", "ExitPlanMode" };
         static readonly Dictionary<string, Entry> cache = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
         static readonly Regex titleRx = new Regex("\"customTitle\":\"((?:[^\"\\\\]|\\\\.)*)\"");
         static readonly Regex cwdRx = new Regex("\"cwd\":\"((?:[^\"\\\\]|\\\\.)*)\"");
@@ -110,33 +117,74 @@ namespace Cascade
         public static object Read(int count = 5)
         {
             var list = new List<object>();
+            var waiting = new List<object>();
             try
             {
                 var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
-                if (!Directory.Exists(root)) return new { type = "sessions", list };
+                if (!Directory.Exists(root)) return new { type = "sessions", list, waiting };
                 var files = Directory.GetDirectories(root)
                     .SelectMany(d => { try { return Directory.GetFiles(d, "*.jsonl"); } catch { return new string[0]; } })
                     .Select(f => new FileInfo(f)).OrderByDescending(f => f.LastWriteTimeUtc).Take(count * 4)
                     // The app appends untimestamped bookkeeping lines to many files at once, so file
                     // times bunch together; order by the last real message instead.
                     .Select(f => (f, e: Scan(f)))
-                    .OrderByDescending(x => x.e.Last == DateTime.MinValue ? x.f.LastWriteTimeUtc : x.e.Last).Take(count);
+                    .OrderByDescending(x => x.e.Last == DateTime.MinValue ? x.f.LastWriteTimeUtc : x.e.Last).ToList();
                 foreach (var (f, e) in files)
                 {
                     var ago = DateTime.UtcNow - (e.Last == DateTime.MinValue ? f.LastWriteTimeUtc : e.Last);
                     var folder = string.IsNullOrEmpty(e.Cwd) ? "" : Path.GetFileName(e.Cwd.TrimEnd('\\'));
                     if (folder.StartsWith("scratch-", StringComparison.OrdinalIgnoreCase)) folder = "No folder";
-                    list.Add(new
-                    {
-                        title = string.IsNullOrEmpty(e.Title) ? (folder.Length > 0 ? folder : "Untitled session") : e.Title,
-                        folder,
-                        working = ago.TotalSeconds < 90,
-                        ago = ago.TotalMinutes < 1 ? "now" : ago.TotalHours < 1 ? (int)ago.TotalMinutes + "m" : ago.TotalDays < 1 ? (int)ago.TotalHours + "h" : (int)ago.TotalDays + "d"
-                    });
+                    var title = string.IsNullOrEmpty(e.Title) ? (folder.Length > 0 ? folder : "Untitled session") : e.Title;
+                    var state = State(e);
+                    if (list.Count < count)
+                        list.Add(new { title, folder, state, working = state == "working", ago = Ago(ago) });
+                    if ((state == "ready" || state == "approval") && waiting.Count < 6)
+                        waiting.Add(new { title, folder, state, ago = Ago(DateTime.UtcNow - e.TurnAt), since = new DateTimeOffset(e.TurnAt).ToUnixTimeMilliseconds() });
                 }
             }
             catch (Exception ex) { Log.Write("sessions: " + ex.Message); }
-            return new { type = "sessions", list };
+            return new { type = "sessions", list, waiting };
+        }
+
+        static string Ago(TimeSpan a) => a.TotalMinutes < 1 ? "now" : a.TotalHours < 1 ? (int)a.TotalMinutes + "m" : a.TotalDays < 1 ? (int)a.TotalHours + "h" : (int)a.TotalDays + "d";
+
+        // ready: Claude is waiting on an answer from you: a question with buttons, a choice, or a plan to approve.
+        // approval: Claude asked to run a tool a while ago and nothing came back, usually a permission prompt.
+        // done: Claude finished with nothing to answer. working: mid-turn. Old sessions count as idle.
+        static string State(Entry e)
+        {
+            if (e.Turn == null) return "idle";
+            var age = DateTime.UtcNow - e.TurnAt;
+            if (e.Turn == "end") return age.TotalHours >= 3 ? "idle" : e.Asks ? "ready" : "done";
+            if (e.Turn == "tool")
+            {
+                if (askTools.Contains(e.Tool ?? "")) return age.TotalHours < 3 ? "ready" : "idle";
+                return age.TotalSeconds < 45 ? "working" : age.TotalHours < 3 ? "approval" : "idle";
+            }
+            return age.TotalMinutes < 15 ? "working" : "idle";
+        }
+
+        static void Turn(Entry e, string line)
+        {
+            if (line.IndexOf("\"isSidechain\":true", StringComparison.Ordinal) >= 0) return; // subagents
+            bool asst = line.IndexOf("\"type\":\"assistant\"", StringComparison.Ordinal) >= 0;
+            bool user = !asst && line.IndexOf("\"type\":\"user\"", StringComparison.Ordinal) >= 0;
+            if (!asst && !user) return;
+            var ts = timeRx.Match(line);
+            if (!ts.Success || !DateTime.TryParse(ts.Groups[1].Value, null,
+                    System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var at)) return;
+            if (user)
+            {
+                // a new prompt from you starts a fresh turn; tool results belong to the current one
+                if (line.IndexOf("\"type\":\"tool_result\"", StringComparison.Ordinal) < 0) e.Asks = false;
+                e.Turn = "user"; e.TurnAt = at; return;
+            }
+            var stop = stopRx.Match(line).Groups[1].Value;
+            var tool = toolRx.Match(line);
+            if (line.IndexOf(AskBox, StringComparison.Ordinal) >= 0 && line.IndexOf("\"ask\":\"", StringComparison.Ordinal) >= 0) e.Asks = true;
+            if (tool.Success) { e.Turn = "tool"; e.Tool = tool.Groups[1].Value; e.TurnAt = at; }
+            else if (stop == "end_turn" || stop == "stop_sequence") { e.Turn = "end"; e.TurnAt = at; }
+            else if (e.Turn != "tool") { e.Turn = "user"; e.TurnAt = at; } // streaming text or thinking
         }
 
         // Reads only the bytes appended since the last scan.
@@ -148,24 +196,32 @@ namespace Cascade
             {
                 using (var fs = new FileStream(f.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                 {
-                    long start = e.Length > f.Length ? 0 : e.Length;
-                    fs.Seek(start, SeekOrigin.Begin);
-                    var buf = new byte[1 << 20];
-                    var carry = "";
+                    if (e.Length > f.Length) { e.Length = 0; e.Carry = ""; e.Turn = null; }
+                    fs.Seek(e.Length, SeekOrigin.Begin);
+                    var buf = new byte[1 << 22];
+                    var dec = Encoding.UTF8.GetDecoder();
+                    var chars = new char[Encoding.UTF8.GetMaxCharCount(buf.Length)];
                     int n;
                     while ((n = fs.Read(buf, 0, buf.Length)) > 0)
                     {
-                        var text = carry + Encoding.UTF8.GetString(buf, 0, n);
-                        foreach (Match m in titleRx.Matches(text)) e.Title = Unescape(m.Groups[1].Value);
-                        if (e.Cwd == null) { var c = cwdRx.Match(text); if (c.Success) e.Cwd = Unescape(c.Groups[1].Value); }
-                        var ts = timeRx.Matches(text);
-                        if (ts.Count > 0 && DateTime.TryParse(ts[ts.Count - 1].Groups[1].Value, null,
-                                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var t) && t > e.Last)
-                            e.Last = t;
-                        carry = text.Length > 400 ? text.Substring(text.Length - 400) : text;
+                        // Whole lines only; a line still being written is finished on the next scan.
+                        var text = e.Carry + new string(chars, 0, dec.GetChars(buf, 0, n, chars, 0));
+                        int cut = text.LastIndexOf('\n') + 1;
+                        e.Carry = text.Substring(cut);
+                        e.Length += n;
+                        foreach (var line in text.Substring(0, cut).Split('\n'))
+                        {
+                            if (line.Length == 0) continue;
+                            foreach (Match m in titleRx.Matches(line)) e.Title = Unescape(m.Groups[1].Value);
+                            if (e.Cwd == null) { var c = cwdRx.Match(line); if (c.Success) e.Cwd = Unescape(c.Groups[1].Value); }
+                            var ts = timeRx.Match(line);
+                            if (ts.Success && DateTime.TryParse(ts.Groups[1].Value, null,
+                                    System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var t) && t > e.Last)
+                                e.Last = t;
+                            Turn(e, line);
+                        }
                     }
                 }
-                e.Length = f.Length;
             }
             catch { }
             return e;

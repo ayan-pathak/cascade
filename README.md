@@ -30,6 +30,8 @@ Calendar: Ctrl+Alt+C, the top-bar date or the calendar tile open Google Calendar
 
 Claude on the home screen:
 - The Claude tile (the turning spark) spins faster while a session is working. Hover it to peek at a live view of your Claude window; click to switch to Claude.
+- Waiting on you: a pixel tile in the Claude colour counts Claude Code sessions that are waiting on an answer from you: a question with answer buttons, a choice or a plan to approve (checker tile), or what looks like a permission prompt (blinking diamond). Sessions that simply finished aren't counted. Working sessions show as static. Click it to go to Claude.
+- Home effect (Personalize → Panels): Water ripples the wallpaper where you click; Fog mists it over so you can rub it clear with the mouse.
 - Drag any tile to move it. Right-click the desktop → Reset widget layout to put them back.
 - The Home button at the left of the dock shows the home screen; press it again to bring your windows back.
 - Claude · plan limits shows your 5-hour and weekly limits with reset times. It uses Claude Code's sign-in from `~/.claude/.credentials.json`, renews it the same way Claude Code does when it expires, and saves it back so both stay signed in. Tokens are sent only to Anthropic and never logged. Connect it once: run `claude` in a terminal, type `/login`, and click Authorize in your browser. Without a sign-in the tile shows usage counted from your local session files. Click the tile for Claude's usage settings.

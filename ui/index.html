@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<div id="bd"><div id="wall"></div><div id="grade"></div></div>
+<div id="bd"><div id="wall"></div><canvas id="fx"></canvas><div id="grade"></div><div id="caustic"></div></div>
 <main id="root"></main>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <filter id="duo" color-interpolation-filters="sRGB">
@@ -20,6 +20,12 @@
     </feComponentTransfer>
     <feColorMatrix in="SourceGraphic" type="saturate" values="0.75" result="orig"/>
     <feComposite id="duoMix" in="orig" in2="duotone" operator="arithmetic" k1="0" k2="0.35" k3="0.65" k4="0"/>
+  </filter>
+  <!-- liquid glass: low-frequency noise bends what sits behind each panel -->
+  <filter id="lg" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.006 0.009" numOctaves="2" seed="11" result="n"/>
+    <feGaussianBlur in="n" stdDeviation="3" result="nb"/>
+    <feDisplacementMap in="SourceGraphic" in2="nb" scale="34" xChannelSelector="R" yChannelSelector="G"/>
   </filter>
 </svg>
 <script src="calendar.js"></script>

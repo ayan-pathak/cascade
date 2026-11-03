@@ -17,7 +17,7 @@ const DEF = {
   city: "Seattle", lat: 47.61, lon: -122.33, units: "c",
   fontUrl: "", fontName: "", dispClock: true,
   iconColor: 35, dockAutoHide: true, maximizeNew: true, icsUrl: "",
-  fontAll: false, calView: "week", calHidden: [], layout: {}
+  fontAll: false, calView: "week", calHidden: [], layout: {}, glass: true, homeFx: "water"
 };
 
 const st = {
@@ -97,6 +97,8 @@ function applyTheme() {
   document.body.classList.toggle("dispOn", S.dispClock !== false);
   document.body.classList.toggle("fontAll", !!S.fontAll);
   document.body.classList.toggle("custFont", !!S.fontUrl);
+  document.body.classList.toggle("glass", S.glass !== false);
+  ["water", "fog"].forEach(m => document.body.classList.toggle("fx-" + m, S.homeFx === m));
   // an imported display font (e.g. Harmond) becomes "CascadeDisplay"
   let ff = $("ff");
   if (!ff) { ff = document.createElement("style"); ff.id = "ff"; document.head.appendChild(ff); }
@@ -114,7 +116,7 @@ function setSettings(patch, push = true) {
   Object.assign(st.settings, patch);
   applyTheme();
   if (VIEW === "personalize") renderPersDyn();
-  if (VIEW === "desktop") renderDesktopDyn();
+  if (VIEW === "desktop") { renderDesktopDyn(); homeFx(); }
   if (push) { clearTimeout(pushTimer); pushTimer = setTimeout(() => send("settings", { settings: st.settings }), 40); }
 }
 
@@ -185,6 +187,7 @@ function renderDesktop() {
     <div class="p wgt" id="live">
       <svg class="spark" id="spark" viewBox="-50 -50 100 100">${Array.from({ length: 12 }, (_, i) => `<path d="M0 -8 L3 -42 L0 -46 L-3 -42 Z" transform="rotate(${i * 30}) scale(${i % 2 ? .78 : 1})"/>`).join("")}<circle r="9"/></svg>
       <div class="ln">Claude</div><div class="ls" id="lstate">hover to peek</div></div>
+    <div class="p wgt" id="ready" title="Open Claude"><canvas id="rdc" width="80" height="66"></canvas><div class="lbl">Claude</div><div id="rsum">All quiet</div><div id="rsub"></div><div id="rrows"></div></div>
     <div class="p" id="lpop"><div class="lbl"><span>Claude · live</span><span class="lt" id="ltitle"></span></div><div class="lv" id="lv"><div class="empty" id="lempty">Claude isn't open. Click to open it.</div></div></div>
   </div>`;
   root.querySelectorAll("#rail [data-cmd]").forEach(b => b.onclick = () => {
@@ -194,6 +197,8 @@ function renderDesktop() {
   $("weather").onclick = () => send("open", { view: "personalize" });
   $("claude").onclick = $("live").onclick = $("lpop").onclick = () => send("openClaude");
   $("usage").onclick = () => send("openClaudeUsage");
+  $("ready").onclick = () => send("openClaude");
+  setInterval(readyFrame, 50);
   for (const id of ["live", "lpop"]) {
     $(id).addEventListener("mouseenter", () => peek(true));
     $(id).addEventListener("mouseleave", () => peek(false));
@@ -222,9 +227,173 @@ function renderDesktopDyn() {
   $("wcity").textContent = st.settings.city;
   const key = `${st.settings.lat},${st.settings.lon},${st.settings.units}`;
   if (key !== weatherKey) { weatherKey = key; loadWeather(); }
-  renderCalendar(); renderStats(); renderMedia(); renderSessions(); renderUsage(); applyArrange();
+  renderCalendar(); renderStats(); renderMedia(); renderSessions(); renderReady(); renderUsage(); applyArrange();
   if (!st.settings.widgets) peek(false);
 }
+// Liquid glass: each panel lights up where the pointer is.
+let glassRaf = 0, glassPt = null;
+function initGlass() {
+  document.addEventListener("pointermove", e => {
+    glassPt = e;
+    if (!glassRaf) glassRaf = requestAnimationFrame(() => {
+      glassRaf = 0;
+      if (!document.body.classList.contains("glass")) return;
+      root.querySelectorAll(".p").forEach(p => {
+        const r = p.getBoundingClientRect();
+        p.style.setProperty("--mx", (glassPt.clientX - r.left).toFixed(0) + "px");
+        p.style.setProperty("--my", (glassPt.clientY - r.top).toFixed(0) + "px");
+      });
+    });
+  });
+  document.addEventListener("pointerleave", () => root.querySelectorAll(".p").forEach(p => p.style.setProperty("--mx", "-400px")));
+}
+
+// Home effect, picked in Personalize. "water": the wallpaper ripples where the pointer moves (a small wave
+// simulation bends a copy of the wallpaper in WebGL). "fog": the wallpaper mists over, clears where you rub,
+// then slowly fogs back. Both draw into #fx, under the colour grade, on the home screen only.
+const FX = { key: "", img: null, url: "", raf: 0, timer: 0, water: null, fog: null, last: null };
+function initHomeFx() {
+  addEventListener("resize", () => { FX.key = ""; homeFx(); });
+  document.addEventListener("pointermove", fxPointer);
+  document.addEventListener("pointerdown", e => { if (FX.water && e.button === 0 && !e.target.closest(".p")) waterDrop(e.clientX, e.clientY); });
+  document.addEventListener("pointerleave", () => FX.last = null);
+  homeFx();
+}
+// Where #wall's photo sits inside #bd: 40px bleed on every side, background-size cover, centred.
+function wallGeom(img) {
+  const r = $("bd").getBoundingClientRect(), W = r.width + 80, H = r.height + 80;
+  const s = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+  return { left: r.left, top: r.top, w: r.width, h: r.height, iw: img.naturalWidth * s, ih: img.naturalHeight * s,
+    ox: (W - img.naturalWidth * s) / 2 - 40, oy: (H - img.naturalHeight * s) / 2 - 40 };
+}
+function homeFx() {
+  const S = st.settings, mode = VIEW === "desktop" ? S.homeFx || "none" : "none";
+  const key = [mode, S.wall, S.sat].join("|");
+  if (key === FX.key || !$("fx")) return;
+  FX.key = key;
+  cancelAnimationFrame(FX.raf); clearInterval(FX.timer); FX.raf = FX.timer = 0; FX.water = FX.fog = null;
+  const cv = document.createElement("canvas"); cv.id = "fx"; $("fx").replaceWith(cv);
+  if (mode === "none") return;
+  const go = img => { if (FX.key === key) try { (mode === "water" ? waterSetup : fogSetup)(cv, img); } catch (e) { console.warn("home effect", e); } };
+  if (FX.img && FX.url === S.wall) return go(FX.img);
+  const im = new Image(); im.crossOrigin = "anonymous";
+  im.onload = () => { FX.img = im; FX.url = S.wall; go(im); };
+  im.src = S.wall;
+}
+function fxPointer(e) {
+  const p = { x: e.clientX, y: e.clientY }, last = FX.last; FX.last = p;
+  if (!last || document.hidden) return;
+  if (FX.fog) fogRub(last, p);
+}
+
+// ---- water ----
+const WATER_VS = `#version 300 es
+in vec2 p; out vec2 uv;
+void main() { uv = vec2(p.x * .5 + .5, .5 - p.y * .5); gl_Position = vec4(p, 0., 1.); }`;
+const WATER_FS = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D wall, hgt; uniform vec2 cell, scr, org, isz; uniform float sat;
+void main() {
+  float dx = texture(hgt, uv + vec2(cell.x, 0.)).r - texture(hgt, uv - vec2(cell.x, 0.)).r;
+  float dy = texture(hgt, uv + vec2(0., cell.y)).r - texture(hgt, uv - vec2(0., cell.y)).r;
+  float m = abs(dx) + abs(dy);
+  if (m < .004) { o = vec4(0.); return; }
+  vec3 c = texture(wall, (uv * scr + vec2(dx, dy) * 18. - org) / isz).rgb;
+  c = mix(vec3(dot(c, vec3(.299, .587, .114))), c, sat);
+  float lit = -.7 * (dx + dy);
+  c += max(lit, 0.) * .5 - max(-lit, 0.) * .3;
+  o = vec4(c, min(m * 30., 1.));
+}`;
+function waterSetup(cv, img) {
+  const g = wallGeom(img), d = Math.min(devicePixelRatio || 1, 1.5);
+  cv.width = Math.round(g.w * d); cv.height = Math.round(g.h * d);
+  const gl = cv.getContext("webgl2", { premultipliedAlpha: false, antialias: false }); if (!gl) return;
+  const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+  const pr = gl.createProgram();
+  gl.attachShader(pr, sh(gl.VERTEX_SHADER, WATER_VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, WATER_FS));
+  gl.linkProgram(pr); gl.useProgram(pr);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(pr, "p"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const tex = (unit, name) => {
+    gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    gl.uniform1i(gl.getUniformLocation(pr, name), unit);
+  };
+  tex(0, "wall"); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+  tex(1, "hgt"); // stays the active unit; each frame uploads the wave heights into it
+  const SW = Math.ceil(g.w / 4), SH = Math.ceil(g.h / 4);
+  const u = (n, ...v) => gl[`uniform${v.length}f`](gl.getUniformLocation(pr, n), ...v);
+  u("cell", 1 / SW, 1 / SH); u("scr", g.w, g.h); u("org", g.ox, g.oy); u("isz", g.iw, g.ih); u("sat", st.settings.sat / 100);
+  gl.viewport(0, 0, cv.width, cv.height);
+  FX.water = { gl, g, SW, SH, a: new Float32Array(SW * SH), b: new Float32Array(SW * SH), idle: 0 };
+}
+// A click drops a stone into the water: a dip under the pointer that spreads out as rings.
+function waterDrop(cx, cy) {
+  const W = FX.water, x0 = (cx - W.g.left) / 4 | 0, y0 = (cy - W.g.top) / 4 | 0;
+  for (let j = -4; j <= 4; j++) for (let i = -4; i <= 4; i++) {
+    const x = x0 + i, y = y0 + j, r = i * i + j * j;
+    if (r > 16 || x < 1 || y < 1 || x >= W.SW - 1 || y >= W.SH - 1) continue;
+    W.a[y * W.SW + x] += 3 * Math.cos(Math.sqrt(r) / 4 * Math.PI / 2);
+  }
+  W.idle = 0;
+  if (!FX.raf) FX.raf = requestAnimationFrame(waterFrame);
+}
+function waterFrame() {
+  FX.raf = 0;
+  const W = FX.water; if (!W) return;
+  const { a, b, SW, SH, gl } = W; let e = 0;
+  for (let y = 1; y < SH - 1; y++) for (let x = 1, i = y * SW + 1; x < SW - 1; x++, i++) {
+    const n = ((a[i - 1] + a[i + 1] + a[i - SW] + a[i + SW]) * .5 - b[i]) * .975;
+    b[i] = n; e += n < 0 ? -n : n;
+  }
+  W.a = b; W.b = a;
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, SW, SH, 0, gl.RED, gl.FLOAT, W.a);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  // keep going while the surface still moves; once calm, clear so nothing is drawn over the wallpaper
+  if (e / (SW * SH) > .0004 || ++W.idle < 30) FX.raf = requestAnimationFrame(waterFrame);
+  else { W.a.fill(0); W.b.fill(0); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
+}
+
+// ---- fog ----
+function fogSetup(cv, img) {
+  const g = wallGeom(img);
+  cv.width = Math.round(g.w); cv.height = Math.round(g.h);
+  const fog = document.createElement("canvas"); fog.width = cv.width; fog.height = cv.height;
+  const f = fog.getContext("2d");
+  f.filter = `blur(22px) saturate(${(st.settings.sat / 100 * .8).toFixed(2)}) brightness(1.15)`;
+  f.drawImage(img, g.ox, g.oy, g.iw, g.ih);
+  f.filter = "none";
+  f.fillStyle = "rgba(215,222,240,.16)"; f.fillRect(0, 0, fog.width, fog.height);
+  for (let n = fog.width * fog.height / 700; n > 0; n--) { // condensation beads
+    const x = Math.random() * fog.width, y = Math.random() * fog.height, r = .4 + Math.random() * Math.random() * 2.6;
+    f.fillStyle = `rgba(255,255,255,${(.05 + Math.random() * .2).toFixed(2)})`;
+    f.beginPath(); f.arc(x, y, r, 0, 7); f.fill();
+  }
+  const c = cv.getContext("2d"); c.drawImage(fog, 0, 0);
+  FX.fog = { c, fog, g, dirty: 0 };
+  // cleared patches mist over again over about half a minute
+  FX.timer = setInterval(() => {
+    const F = FX.fog; if (!F || !F.dirty || document.hidden) return;
+    c.globalAlpha = .008; c.drawImage(fog, 0, 0); c.globalAlpha = 1;
+    if (++F.dirty > 500) F.dirty = 0;
+  }, 100);
+}
+// Each pass along the pointer's path wipes away some of the mist; a few passes clear it.
+function fogRub(a, b) {
+  const F = FX.fog, c = F.c, R = 58, dist = Math.hypot(b.x - a.x, b.y - a.y), steps = Math.max(1, Math.ceil(dist / (R / 4)));
+  c.globalCompositeOperation = "destination-out";
+  for (let k = 1; k <= steps; k++) {
+    const x = a.x + (b.x - a.x) * k / steps - F.g.left, y = a.y + (b.y - a.y) * k / steps - F.g.top;
+    const gr = c.createRadialGradient(x, y, R * .2, x, y, R);
+    gr.addColorStop(0, "rgba(0,0,0,.35)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = gr; c.fillRect(x - R, y - R, R * 2, R * 2);
+  }
+  c.globalCompositeOperation = "source-over";
+  F.dirty = 1;
+}
+
 // Hovering the Claude tile opens a live view beside it; the host draws the thumbnail into #lv.
 let peekTimer = 0, peekOn = false, liveKey = "";
 function peek(on) {
@@ -401,6 +570,68 @@ function renderMedia() {
 function tickViz() {
   const on = st.media && st.media.playing, t = Date.now();
   [...$("viz").children].forEach((s, i) => s.style.height = on ? (15 + Math.abs(Math.sin(t / 400 + i * .7)) * 60 + Math.random() * 25) + "%" : "8%");
+}
+// "Waiting on you": Claude Code sessions that asked you something (a question with answer buttons, a choice,
+// a plan) or seem stuck on a permission prompt, drawn as an ordered-dither tile in the Claude colour (--acc2, like the spark). Dark pixels stay
+// clear so the glass shows through; the count is cut out of the big tile.
+let readyRows = [], readyCount = 0, readyFlare = 0, readyPal = null, readyTick = 0;
+function renderReady() {
+  if (!$("rrows")) return;
+  const ago = ms => { const m = Math.round((Date.now() - ms) / 6e4); return m < 1 ? "now" : m < 60 ? m + "m" : Math.round(m / 60) + "h"; };
+  const wait = (st.waiting || []).map(s => ({ kind: s.state, title: s.title, since: s.since })).sort((a, b) => a.since - b.since);
+  if (wait.length > readyCount) readyFlare = performance.now();
+  readyCount = wait.length;
+  const busy = (st.sessions || []).filter(s => s.state === "working").map(s => ({ kind: "working", title: s.title }));
+  readyRows = wait.concat(busy).slice(0, 2);
+  const tag = r => ({ ready: ago(r.since), approval: "approve?", working: "busy" })[r.kind];
+  $("rsum").textContent = readyCount ? `${readyCount} waiting` : busy.length ? "Working" : "All quiet";
+  $("rsub").textContent = readyCount ? "oldest " + ago(wait[0].since) : busy.length ? `${busy.length} session${busy.length > 1 ? "s" : ""} busy` : "nothing needs you";
+  $("rrows").innerHTML = readyRows.map(r => `<div class="rr ${r.kind}"><b>${esc(r.title)}</b><span>${tag(r)}</span></div>`).join("");
+}
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+let rdImg = null, rdText = "", rdMask = null;
+const rdI = new Float32Array(80 * 66);
+function readyFrame() {
+  const cv = $("rdc"); if (!cv || document.hidden || !st.settings.widgets) return;
+  const W = 80, H = 66, t = performance.now(), I = rdI;
+  if (!rdImg) rdImg = cv.getContext("2d").createImageData(W, H);
+  if (!readyPal || ++readyTick % 40 === 0) {
+    const cs = getComputedStyle(document.documentElement), tint = cs.getPropertyValue("--tint").split(",").map(Number);
+    const acc = hexToRgb(cs.getPropertyValue("--acc2").trim()), txt = hexToRgb(cs.getPropertyValue("--txt").trim());
+    readyPal = [null, tint.map((v, i) => Math.round(v + (acc[i] - v) * .4)), acc, txt];
+  }
+  // the count, rendered once per change into a mask that gets cut out of the big tile
+  const label = readyCount > 9 ? "9+" : String(readyCount);
+  if (label !== rdText) {
+    rdText = label;
+    const m = document.createElement("canvas"); m.width = W; m.height = H;
+    const c = m.getContext("2d"); c.fillStyle = "#fff"; c.textAlign = "center"; c.textBaseline = "middle";
+    c.font = `500 ${label.length > 1 ? 18 : 27}px ${getComputedStyle(document.body).fontFamily}`;
+    c.fillText(label, 16, 22);
+    const px = c.getImageData(0, 0, W, H).data; rdMask = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) rdMask[i] = px[i * 4 + 3] > 110 ? 1 : 0;
+  }
+  I.fill(0);
+  const shade = (x0, y0, w, h, f) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) I[(y0 + j) * W + x0 + i] = f(i / w, j / h); };
+  // big tile: bright and breathing while something waits, a slow dim drift when all is quiet
+  const flare = clamp(1 - (t - readyFlare) / 900, 0, 1);
+  if (readyCount) { const p = .74 + .2 * Math.sin(t / 380) + flare * .3; shade(4, 4, 24, 32, (u, v) => p * (.62 + .38 * (1 - Math.hypot(u - .5, v - .42) * 1.3))); }
+  else shade(4, 4, 24, 32, (u, v) => .26 + .1 * Math.sin((u + v) * 9 - t / 900));
+  for (let i = 0; i < W * H; i++) if (rdMask[i]) I[i] = 0;
+  // one small tile per row
+  readyRows.forEach((r, k) => {
+    const y = 41 + k * 12, x = 6;
+    if (r.kind === "ready") { const p = .7 + .3 * Math.sin(t / 380 + k); shade(x, y, 8, 8, (u, v) => p * (((u * 4 | 0) + (v * 4 | 0)) % 2 ? 1 : .55)); }
+    else if (r.kind === "approval") { const on = Math.sin(t / 170) > 0 ? 1 : .45; shade(x, y, 8, 8, (u, v) => on * (Math.abs(u - .5) + Math.abs(v - .5) < .42 ? 1 : .3)); }
+    else shade(x, y, 8, 8, (u, v) => .12 + .3 * ((Math.sin(v * 14 + t / 90) + 1) / 2) * Math.random());
+  });
+  const d = rdImg.data;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, v = clamp(I[i], 0, 1) * 3, b = (BAYER[(y & 3) * 4 + (x & 3)] + .5) / 16;
+    const q = readyPal[Math.min(3, Math.floor(v) + (v % 1 > b ? 1 : 0))];
+    if (q) { d[i * 4] = q[0]; d[i * 4 + 1] = q[1]; d[i * 4 + 2] = q[2]; d[i * 4 + 3] = 255; } else d[i * 4 + 3] = 0;
+  }
+  cv.getContext("2d").putImageData(rdImg, 0, 0);
 }
 function renderSessions() {
   const el = $("sess"); if (!el) return;
@@ -661,6 +892,9 @@ function renderPers() {
       <div class="sl"><span>Tint</span><input type="range" id="s_ti" min="0" max="100" step="1"><output id="o_ti"></output></div>
       <label class="tg"><span>Tint dock icons</span><input type="checkbox" id="t_iconTint"><span class="s"></span></label>
       <div class="sl"><span>Icon colour</span><input type="range" id="s_iconColor" min="0" max="100" step="5"><output id="o_iconColor"></output></div>
+      <label class="tg"><span>Liquid glass</span><input type="checkbox" id="t_glass"><span class="s"></span></label>
+      <div class="tg"><span>Home effect</span><div class="seg" id="fxSeg"><button data-fx="none">None</button><button data-fx="water">Water</button><button data-fx="fog">Fog</button></div></div>
+      <div class="empty" id="fxHint" style="margin-top:6px"></div>
       <label class="tg"><span>Show widgets</span><input type="checkbox" id="t_widgets"><span class="s"></span></label>
       <label class="tg"><span>24-hour clock</span><input type="checkbox" id="t_clock24"><span class="s"></span></label></div>
     <div class="sec"><div class="lbl"><span>Display font</span><span class="auto" id="fname"></span></div>
@@ -694,11 +928,12 @@ function renderPers() {
   $("c1").oninput = e => setSettings({ acc: e.target.value, auto: false });
   $("c2").oninput = e => setSettings({ acc2: e.target.value, auto: false });
   ["dark", "wb", "sat", "pa", "bl", "ti", "iconColor"].forEach(k => $("s_" + k).oninput = e => setSettings({ [k]: +e.target.value }));
-  ["iconTint", "widgets", "clock24", "dispClock", "maximizeNew", "dockAutoHide"].forEach(k => $("t_" + k).onchange = e => setSettings({ [k]: e.target.checked }));
+  ["iconTint", "widgets", "clock24", "dispClock", "maximizeNew", "dockAutoHide", "glass"].forEach(k => $("t_" + k).onchange = e => setSettings({ [k]: e.target.checked }));
   $("icsSave").onclick = () => { setSettings({ icsUrl: $("ics").value.trim() }); $("calst").textContent = "CONNECTING"; };
   $("icsClear").onclick = () => { $("ics").value = ""; setSettings({ icsUrl: "" }); };
   $("pers").querySelectorAll("a[data-url]").forEach(a => { a.href = "#"; a.onclick = e => { e.preventDefault(); send("openUrl", { url: a.dataset.url }); }; });
   $("t_fontAll").onchange = e => setSettings({ fontAll: e.target.checked });
+  $("fxSeg").querySelectorAll("button").forEach(b => b.onclick = () => setSettings({ homeFx: b.dataset.fx }));
   renderGoogle();
   send("calSources");
   $("fimp").onclick = () => send("addFont");
@@ -762,11 +997,13 @@ function renderPersDyn() {
   if (document.activeElement !== $("ics")) $("ics").value = S.icsUrl || "";
   $("calst").textContent = calStatus();
   [["dark", "%"], ["wb", "px"], ["sat", "%"], ["pa", "%"], ["bl", "px"], ["ti", "%"], ["iconColor", "%"]].forEach(([k, u]) => { if (document.activeElement !== $("s_" + k)) $("s_" + k).value = S[k]; $("o_" + k).textContent = S[k] + u; });
-  ["iconTint", "widgets", "clock24", "dispClock", "maximizeNew", "dockAutoHide"].forEach(k => $("t_" + k).checked = !!S[k]);
-  $("fname").textContent = (S.fontName || (fontInstalled("Harmond") || fontInstalled("Harmond Display") ? "Harmond (installed)" : "Stand-in serif")).toUpperCase();
+  ["iconTint", "widgets", "clock24", "dispClock", "maximizeNew", "dockAutoHide", "glass"].forEach(k => $("t_" + k).checked = !!S[k]);
+  $("fname").textContent = (S.fontName || (fontInstalled("Harmond") || fontInstalled("Harmond Display") ? "Harmond (installed)" : "Space Grotesk")).toUpperCase();
   $("fprev").textContent = fmtTime(new Date()).t;
   $("t_f").checked = S.units === "f";
   $("t_fontAll").checked = !!S.fontAll;
+  $("fxSeg").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.fx === (S.homeFx || "none")));
+  $("fxHint").textContent = { water: "Click an empty spot on the home screen to ripple the water.", fog: "Rub with the mouse to wipe the mist away. It slowly fogs back.", none: "" }[S.homeFx || "none"];
   if (document.activeElement !== $("label")) $("label").value = S.label || "";
   $("city").placeholder = `Search a city (now ${S.city})`;
 }
@@ -812,6 +1049,7 @@ function onMsg(m) {
       st.settings = Object.assign({}, DEF, m.settings || {});
       placeBackdrop(); applyTheme();
       ({ desktop: renderDesktop, topbar: renderTopbar, dock: renderDock, launcher: renderLauncher, personalize: renderPers, ambient: renderAmbient, calendar: renderCalendarView, preview: renderPreview })[VIEW]();
+      if (!st.ready) { initGlass(); if (VIEW === "desktop") initHomeFx(); }
       st.ready = true;
       if (fresh && VIEW === "personalize") setWall(DEF.wall, true);
       break;
@@ -828,7 +1066,7 @@ function onMsg(m) {
     case "icons": Object.assign(st.icons, m.map); if (VIEW === "dock") renderDock(); if (VIEW === "launcher" && $("res")) drawResults(); break;
     case "stats": st.stats = m; if (VIEW === "desktop") renderStats(); if (VIEW === "topbar") renderTopbarDyn(); break;
     case "media": st.media = m; if (VIEW === "desktop") renderMedia(); if (VIEW === "topbar") renderTopbarDyn(); break;
-    case "sessions": st.sessions = m.list; if (VIEW === "desktop") renderSessions(); break;
+    case "sessions": st.sessions = m.list; st.waiting = m.waiting || []; if (VIEW === "desktop") { renderSessions(); renderReady(); } break;
     case "usage": st.usage = m; if (VIEW === "desktop") renderUsage(); break;
     case "live":
       if (VIEW === "desktop" && $("lv")) { $("lempty").style.display = m.has ? "none" : ""; $("ltitle").textContent = m.has ? m.title || "" : ""; }

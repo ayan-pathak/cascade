@@ -791,7 +791,7 @@ namespace Cascade
             Broadcast(lastMedia, desktop, topbar);
             var (count, current) = Desktops.Read();
             topbar.Send(new { type = "desktops", count, current });
-            if (slowTicks % 5 == 1)
+            if (slowTicks % 2 == 1)
             {
                 lastSessions = Sessions.Read();
                 Broadcast(lastSessions, desktop, launcher);
