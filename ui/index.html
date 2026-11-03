@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cascade</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="bd"><div id="wall"></div><div id="grade"></div></div>
+<main id="root"></main>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="duo" color-interpolation-filters="sRGB">
+    <feColorMatrix in="SourceGraphic" type="matrix" values="0.3 0.59 0.11 0 0  0.3 0.59 0.11 0 0  0.3 0.59 0.11 0 0  0 0 0 1 0" result="gray"/>
+    <feComponentTransfer in="gray" result="duotone">
+      <feFuncR id="duoR" type="table" tableValues="0 1"/>
+      <feFuncG id="duoG" type="table" tableValues="0 1"/>
+      <feFuncB id="duoB" type="table" tableValues="0 1"/>
+    </feComponentTransfer>
+    <feColorMatrix in="SourceGraphic" type="saturate" values="0.75" result="orig"/>
+    <feComposite id="duoMix" in="orig" in2="duotone" operator="arithmetic" k1="0" k2="0.35" k3="0.65" k4="0"/>
+  </filter>
+</svg>
+<script src="calendar.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

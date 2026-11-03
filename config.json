@@ -1,0 +1,59 @@
+{
+  "hideWindowsTaskbar": true,
+  "gap": 10,
+  "hotkeys": {
+    "askClaude": "Alt+Space",
+    "launcher": "Ctrl+Alt+K",
+    "personalize": "Ctrl+Alt+P",
+    "snapLeft": "Ctrl+Alt+Left",
+    "snapRight": "Ctrl+Alt+Right",
+    "fill": "Ctrl+Alt+Up",
+    "center": "Ctrl+Alt+Down",
+    "toggleTaskbar": "Ctrl+Alt+T",
+    "reload": "Ctrl+Alt+R"
+  },
+  "apps": [
+    { "id": "claude", "name": "Claude", "match": "claude", "launch": "shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude", "pinned": true },
+    { "id": "chrome", "name": "Chrome", "match": "chrome", "launch": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "args": "--new-window", "pinned": true },
+    { "id": "code", "name": "VS Code", "match": "Code", "launch": "%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe", "pinned": true },
+    { "id": "terminal", "name": "Terminal", "match": "WindowsTerminal", "launch": "wt.exe", "icon": "shell:AppsFolder\\Microsoft.WindowsTerminal_8wekyb3d8bbwe!App", "pinned": true },
+    { "id": "files", "name": "Files", "match": "explorer", "launch": "explorer.exe", "icon": "shell:AppsFolder\\Microsoft.Windows.Explorer", "pinned": true },
+    { "id": "excel", "name": "Excel", "match": "EXCEL", "launch": "shell:AppsFolder\\Microsoft.Office.EXCEL.EXE.15", "pinned": false },
+    { "id": "word", "name": "Word", "match": "WINWORD", "launch": "shell:AppsFolder\\Microsoft.Office.WINWORD.EXE.15", "pinned": false }
+  ],
+  "layouts": [
+    {
+      "name": "Claude | Chrome",
+      "hotkey": "Ctrl+Alt+1",
+      "slots": [
+        { "app": "claude", "rect": [0, 0, 0.5, 1] },
+        { "app": "chrome", "rect": [0.5, 0, 0.5, 1] }
+      ]
+    },
+    {
+      "name": "Workbench",
+      "hotkey": "Ctrl+Alt+2",
+      "slots": [
+        { "app": "claude", "rect": [0, 0, 0.42, 1] },
+        { "app": "chrome", "rect": [0.42, 0, 0.58, 0.62] },
+        { "app": "code", "rect": [0.42, 0.62, 0.58, 0.38] }
+      ]
+    },
+    {
+      "name": "Three columns",
+      "hotkey": "Ctrl+Alt+3",
+      "slots": [
+        { "app": "claude", "rect": [0, 0, 0.333, 1] },
+        { "app": "code", "rect": [0.333, 0, 0.334, 1] },
+        { "app": "chrome", "rect": [0.667, 0, 0.333, 1] }
+      ]
+    },
+    {
+      "name": "Focus",
+      "hotkey": "Ctrl+Alt+4",
+      "slots": [
+        { "app": "@active", "rect": [0.16, 0.04, 0.68, 0.92] }
+      ]
+    }
+  ]
+}

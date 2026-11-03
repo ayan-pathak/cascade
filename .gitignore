@@ -1,0 +1,5 @@
+# Build output, including the WebView profile, settings and sign-ins
+bin/
+obj/
+font-previews/
+*.log
