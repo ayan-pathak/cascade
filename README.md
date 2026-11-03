@@ -45,6 +45,19 @@ Dock: rest the pointer on a running app to see live previews of its windows; cli
   - Each layout slot is `{ "app": "<app id>", "rect": [x, y, width, height] }` as fractions of the screen.
   - `"@active"` means the window you're using.
 
+## Performance
+
+The home screen pauses its animations whenever a maximized or full-screen app covers it. The glass is drawn once into an image per wallpaper rather than filtered live, so panels cost nothing per frame.
+
+To measure Cascade (Cascade.exe plus its WebView2 processes):
+
+```
+.\tools\perf.ps1 -Scenario apps     # what's on screen now, e.g. an app in front
+.\tools\perf.ps1 -Scenario home     # shows the home screen with Win+D, measures, restores
+.\tools\perf.ps1 -Scenario water    # home screen, clicking the water
+.\tools\perf-experiment.ps1 -Css "..." -Js "..."   # same, with a stylesheet or script injected
+```
+
 ## Rebuild or remove
 
 ```

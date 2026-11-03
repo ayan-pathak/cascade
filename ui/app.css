@@ -169,7 +169,11 @@ body.glass .p{
   box-shadow:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -1px 1px rgba(255,255,255,.06),inset 0 -22px 34px -26px rgba(255,255,255,.16),
     inset 0 18px 28px -24px rgba(255,255,255,.10),0 12px 34px -10px rgba(0,0,0,.42);
   backdrop-filter:url(#lg) blur(var(--bl)) saturate(1.65) brightness(1.04)}
-body.glass .p::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;pointer-events:none;
+/* once the glass image is ready (see buildGlass): the panel shows its slice of it instead of filtering live */
+body.glass.gready .p{backdrop-filter:none;
+  background:linear-gradient(160deg,rgba(255,255,255,.09),rgba(255,255,255,.015) 38%,rgba(255,255,255,0) 62%,rgba(255,255,255,.045)),
+    linear-gradient(rgba(var(--tint),calc(var(--pa) * .62)),rgba(var(--tint),calc(var(--pa) * .62))),
+    var(--gimg) var(--gx,0px) var(--gy,0px)/var(--gw,100vw) var(--gh,100vh) no-repeat}body.glass .p::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;pointer-events:none;
   background:linear-gradient(140deg,rgba(255,255,255,.55),rgba(255,255,255,.08) 28%,rgba(255,255,255,0) 50%,rgba(255,255,255,.06) 72%,rgba(255,255,255,.32));
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
 body.glass .p::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
@@ -178,20 +182,13 @@ body.glass .wgt:not(.off):not(.drag){transition:opacity .35s,transform .5s cubic
 body.glass .wgt:not(.off):not(.drag):hover{transform:translateY(-2px) scale(1.012)}
 body.glass .wgt:not(.off):not(.drag):active{transform:scale(.985);transition-duration:.12s}
 
-/* home effect (Personalize): water that ripples under the pointer, or fog you rub away; drawn under the grade */
+/* home effect (Personalize): water that ripples where you click, or fog you rub away; drawn under the grade */
 #fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .seg{display:flex;gap:4px;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:9px;padding:3px}
 .seg button{font-size:11.5px;padding:4px 10px;border-radius:6px;color:var(--fog)}
 .seg button:hover{color:var(--txt)}.seg button.on{background:color-mix(in srgb,var(--acc) 28%,transparent);color:var(--txt)}
-#caustic{position:absolute;inset:0;display:none;pointer-events:none;mix-blend-mode:soft-light;opacity:.55;
-  -webkit-mask:radial-gradient(ellipse 34% 30% at 50% 80%,#000 30%,transparent 100%);
-  background:radial-gradient(ellipse 9% 3% at 30% 40%,rgba(255,255,255,.5),transparent 70%),radial-gradient(ellipse 12% 2.5% at 62% 55%,rgba(255,255,255,.45),transparent 70%),
-    radial-gradient(ellipse 8% 2% at 45% 70%,rgba(255,255,255,.5),transparent 70%),radial-gradient(ellipse 14% 3% at 70% 82%,rgba(255,255,255,.4),transparent 70%),
-    radial-gradient(ellipse 10% 2.2% at 38% 90%,rgba(255,255,255,.45),transparent 70%);
-  background-size:60% 50%;animation:caustic 14s ease-in-out infinite alternate}
-body.fx-water[data-view=desktop] #caustic{display:block}
-@keyframes caustic{0%{background-position:0 0;transform:scaleX(1)}50%{background-position:30% 12%;transform:scaleX(1.06)}100%{background-position:65% 4%;transform:scaleX(.97)}}
-@media (prefers-reduced-motion:reduce){#caustic{animation:none}}
+/* covered by a maximized app: nothing on the home screen is visible, so stop animating */
+body.asleep *,body.asleep *::before,body.asleep *::after{animation-play-state:paused!important}
 .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
 
 /* ---------- desktop ---------- */
@@ -228,14 +225,14 @@ body.fx-water[data-view=desktop] #caustic{display:block}
 #sys{right:12px;top:12px;width:276px;height:190px;padding:16px 18px}
 .row{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;margin-top:9px;color:var(--fog)}
 .row .k{width:40px;color:var(--dim)}.row .tr{flex:1;height:3px;background:rgba(255,255,255,.07);border-radius:2px;overflow:hidden}
-.row .tr i{display:block;height:100%;background:var(--acc);transition:width .6s}.row .v{min-width:48px;text-align:right;color:var(--txt)}
+.row .tr i{display:block;height:100%;width:100%;background:var(--acc);transform:scaleX(0);transform-origin:0 50%;transition:transform .6s}.row .v{min-width:48px;text-align:right;color:var(--txt)}
 #music{right:156px;top:214px;width:132px;height:132px;padding:12px;display:flex;flex-direction:column}
 #music .art{width:38px;height:38px;border-radius:9px;display:grid;place-items:center;font-size:18px;color:var(--acc);background:color-mix(in srgb,var(--acc) 18%,rgba(var(--tint),.9));flex:none}
 #music .tt{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #music .ar{font-size:10px;color:var(--fog);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #music .ctl{display:flex;justify-content:space-between;color:var(--fog);font-size:15px;margin-top:8px;padding:0 4px}
 #music .ctl button:hover{color:var(--txt)}
-.viz{margin-top:auto;display:flex;align-items:flex-end;gap:2px;height:22px}.viz span{flex:1;background:var(--acc);border-radius:1px;opacity:.85;transition:height .25s;height:8%}
+.viz{margin-top:auto;display:flex;align-items:flex-end;gap:2px;height:22px}.viz span{flex:1;background:var(--acc);border-radius:1px;opacity:.85;height:100%;transform:scaleY(.08);transform-origin:50% 100%} /* steps like a level meter: no slide between updates, so nothing animates in between */
 #rings{right:12px;top:214px;width:132px;height:132px;display:grid;grid-template-columns:1fr 1fr;padding:10px;gap:4px}
 .ring{position:relative;display:grid;place-items:center}.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
 .ring i{position:absolute;font-size:14px;color:var(--fog)}
@@ -252,9 +249,13 @@ body.fx-water[data-view=desktop] #caustic{display:block}
 .ul .us{font-family:var(--mono);font-size:9.5px;color:var(--dim);margin-top:3px}
 #usage .foot{margin-top:auto;font-family:var(--mono);font-size:9.5px;line-height:1.4;color:var(--fog)}
 #live{left:64px;top:554px;width:132px;height:132px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center}
-#live .spark{width:58px;height:58px;fill:var(--acc2);animation:spin 28s linear infinite;transition:transform .4s;filter:drop-shadow(0 0 10px color-mix(in srgb,var(--acc2) 35%,transparent))}
-#live:hover .spark{animation-duration:6s}
-#live.busy .spark{animation-duration:3.5s;filter:drop-shadow(0 0 14px color-mix(in srgb,var(--acc2) 60%,transparent))}
+/* The spark turns as one pre-drawn layer, in small steps (12 a second, 30 when hovered or busy):
+   smooth enough at this speed, and the glass around it isn't redrawn 60 times a second. */
+#live .spk{width:58px;height:58px;will-change:transform;animation:spin 28s steps(336) infinite}
+#live .spark{width:100%;height:100%;fill:var(--acc2);filter:drop-shadow(0 0 10px color-mix(in srgb,var(--acc2) 35%,transparent))}
+#live:hover .spk{animation:spin 6s steps(180) infinite}
+#live.busy .spk{animation:spin 3.5s steps(105) infinite}
+#live.busy .spark{filter:drop-shadow(0 0 14px color-mix(in srgb,var(--acc2) 60%,transparent))}
 #live .ln{font-size:13px;font-weight:500;margin-top:10px}
 #live .ls{font-family:var(--mono);font-size:9.5px;color:var(--dim);margin-top:2px}
 #live.busy .ls{color:var(--acc2)}

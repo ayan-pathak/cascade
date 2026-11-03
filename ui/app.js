@@ -5,6 +5,9 @@ document.body.dataset.view = VIEW;
 const wv = window.chrome && window.chrome.webview;
 const send = (type, o = {}) => { const m = Object.assign({ type }, o); if (wv) wv.postMessage(m); else console.log("→", m); };
 const $ = id => document.getElementById(id);
+// Script errors go to Cascade's log (data\log.txt); these pages have no console to look at.
+addEventListener("error", e => send("jsError", { msg: String(e.message), at: `${(e.filename || "").split("/").pop()}:${e.lineno}` }));
+addEventListener("unhandledrejection", e => send("jsError", { msg: String(e.reason && e.reason.message || e.reason), at: "promise" }));
 const root = $("root");
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -104,6 +107,7 @@ function applyTheme() {
   if (!ff) { ff = document.createElement("style"); ff.id = "ff"; document.head.appendChild(ff); }
   const css = S.fontUrl ? `@font-face{font-family:"CascadeDisplay";src:url("${S.fontUrl}");font-display:swap}` : "";
   if (ff.textContent !== css) ff.textContent = css;
+  glassSoon();
   // duotone for dock icons: shadows -> tint, highlights -> accent
   const acc = hexToRgb(S.acc), lo = tint.map(v => Math.min(255, v + 40));
   const keep = clamp((S.iconColor == null ? 35 : S.iconColor) / 100, 0, 1);
@@ -138,6 +142,7 @@ function placeBackdrop() {
   const bd = $("bd"), s = st.scale;
   if (VIEW === "ambient") { Object.assign(bd.style, { left: 0, top: 0, width: "100vw", height: "100vh" }); return; }
   Object.assign(bd.style, { left: -st.rect.x / s + "px", top: -st.rect.y / s + "px", width: st.screen.w / s + "px", height: st.screen.h / s + "px" });
+  placeGlass();
 }
 
 const allWalls = () => PRESETS.concat(st.wallpapers || []);
@@ -185,7 +190,7 @@ function renderDesktop() {
     <div class="p wgt" id="claude" title="Open Claude"><div class="lbl">Claude Code · recent sessions</div><div id="sess"><div class="empty">No sessions yet</div></div></div>
     <div class="p wgt" id="usage" title="Open Claude usage settings"><div class="lbl">Claude · plan limits</div><div id="ulim"><div class="empty">Reading usage…</div></div><div class="foot" id="ufoot"></div></div>
     <div class="p wgt" id="live">
-      <svg class="spark" id="spark" viewBox="-50 -50 100 100">${Array.from({ length: 12 }, (_, i) => `<path d="M0 -8 L3 -42 L0 -46 L-3 -42 Z" transform="rotate(${i * 30}) scale(${i % 2 ? .78 : 1})"/>`).join("")}<circle r="9"/></svg>
+      <div class="spk"><svg class="spark" id="spark" viewBox="-50 -50 100 100">${Array.from({ length: 12 }, (_, i) => `<path d="M0 -8 L3 -42 L0 -46 L-3 -42 Z" transform="rotate(${i * 30}) scale(${i % 2 ? .78 : 1})"/>`).join("")}<circle r="9"/></svg></div>
       <div class="ln">Claude</div><div class="ls" id="lstate">hover to peek</div></div>
     <div class="p wgt" id="ready" title="Open Claude"><canvas id="rdc" width="80" height="66"></canvas><div class="lbl">Claude</div><div id="rsum">All quiet</div><div id="rsub"></div><div id="rrows"></div></div>
     <div class="p" id="lpop"><div class="lbl"><span>Claude · live</span><span class="lt" id="ltitle"></span></div><div class="lv" id="lv"><div class="empty" id="lempty">Claude isn't open. Click to open it.</div></div></div>
@@ -198,7 +203,7 @@ function renderDesktop() {
   $("claude").onclick = $("live").onclick = $("lpop").onclick = () => send("openClaude");
   $("usage").onclick = () => send("openClaudeUsage");
   $("ready").onclick = () => send("openClaude");
-  setInterval(readyFrame, 50);
+  setInterval(readyFrame, 80);
   for (const id of ["live", "lpop"]) {
     $(id).addEventListener("mouseenter", () => peek(true));
     $(id).addEventListener("mouseleave", () => peek(false));
@@ -212,7 +217,7 @@ function renderDesktop() {
     `<div class="ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="3"/><circle class="v" id="ring${i}" cx="18" cy="18" r="15" fill="none" stroke="var(--acc)" stroke-width="3" stroke-linecap="round" stroke-dasharray="0 94.2"/></svg><i class="ti ${ic}"></i></div>`).join("");
   document.addEventListener("contextmenu", e => { e.preventDefault(); send("desktopMenu"); });
   tickClock(); setInterval(tickClock, 1000);
-  setInterval(tickViz, 260);
+  setInterval(tickViz, 180);
   renderDesktopDyn();
 }
 function nextWall() {
@@ -230,24 +235,82 @@ function renderDesktopDyn() {
   renderCalendar(); renderStats(); renderMedia(); renderSessions(); renderReady(); renderUsage(); applyArrange();
   if (!st.settings.widgets) peek(false);
 }
-// Liquid glass: each panel lights up where the pointer is.
-let glassRaf = 0, glassPt = null;
+// Glass without live filters. The frosted, slightly bent wallpaper behind the panels is drawn once into an
+// image (blur, saturation, the #lgc refraction and the colour grade), and each panel shows its own slice of
+// it. Live backdrop filters redid all of that for every panel on every frame anything on screen moved,
+// which kept the GPU busy. Until the image is ready, panels use a plain backdrop blur.
+const GLASS_VIEWS = ["desktop", "topbar", "dock"];
+let glassKey = "", glassUrl = "", glassTimer = 0, glassRaf = 0;
+function glassSoon() { clearTimeout(glassTimer); glassTimer = setTimeout(buildGlass, 250); }
+function buildGlass() {
+  if (!GLASS_VIEWS.includes(VIEW) || !$("bd")) return;
+  const S = st.settings, cs = getComputedStyle(document.documentElement), bd = $("bd").getBoundingClientRect();
+  const grade = cs.getPropertyValue("--grade").trim(), mid = cs.getPropertyValue("--mid").trim();
+  const key = [S.wall, S.wb, S.sat, S.bl, grade, mid, Math.round(bd.width), Math.round(bd.height)].join("|");
+  if (key === glassKey) return placeGlass();
+  glassKey = key;
+  const img = new Image(); img.crossOrigin = "anonymous";
+  img.onload = () => {
+    if (glassKey !== key) return;
+    const k = .5, g = wallGeom(img), c = document.createElement("canvas"); // half size: it is blurred anyway
+    c.width = Math.round(g.w * k); c.height = Math.round(g.h * k);
+    const x = c.getContext("2d"); x.scale(k, k);
+    x.filter = `url(#lgc) blur(${Math.hypot(S.bl, S.wb).toFixed(1)}px) saturate(${(1.65 * S.sat / 100).toFixed(2)}) brightness(1.04)`;
+    x.drawImage(img, g.ox, g.oy, g.iw, g.ih);
+    x.filter = "none";
+    const lg = x.createLinearGradient(0, 0, 0, g.h); // #grade: top and bottom shade, then the vignette
+    lg.addColorStop(0, grade); lg.addColorStop(.4, mid); lg.addColorStop(1, grade);
+    x.fillStyle = lg; x.fillRect(0, 0, g.w, g.h);
+    const rg = x.createRadialGradient(g.w / 2, g.h * .45, 0, g.w / 2, g.h * .45, Math.hypot(g.w, g.h) / 2);
+    rg.addColorStop(.4, "rgba(0,0,0,0)"); rg.addColorStop(1, "rgba(0,0,0,.55)");
+    x.fillStyle = rg; x.fillRect(0, 0, g.w, g.h);
+    try {
+      c.toBlob(b => {
+        if (!b || glassKey !== key) return;
+        if (glassUrl) URL.revokeObjectURL(glassUrl);
+        glassUrl = URL.createObjectURL(b);
+        document.documentElement.style.setProperty("--gimg", `url("${glassUrl}")`);
+        document.body.classList.add("gready");
+        placeGlass();
+      });
+    } catch (e) { console.warn("glass image", e); } // a photo without CORS can't be read back; keep the live blur
+  };
+  img.src = S.wall;
+}
+// Lines each panel's slice up with the wallpaper behind it. Cheap; runs after anything moves a panel.
+function placeGlass() {
+  if (glassRaf || !document.body.classList.contains("gready")) return;
+  glassRaf = requestAnimationFrame(() => {
+    glassRaf = 0;
+    const bd = $("bd").getBoundingClientRect();
+    document.documentElement.style.setProperty("--gw", bd.width + "px");
+    document.documentElement.style.setProperty("--gh", bd.height + "px");
+    root.querySelectorAll(".p").forEach(p => {
+      const r = p.getBoundingClientRect(), b = p.clientLeft; // the background starts inside the border
+      p.style.setProperty("--gx", (bd.left - r.left - b).toFixed(1) + "px");
+      p.style.setProperty("--gy", (bd.top - r.top - b).toFixed(1) + "px");
+    });
+  });
+}
+// Liquid glass: the panel under the pointer lights up where the pointer is.
+let lightRaf = 0, glassPt = null, glassOn = null;
 function initGlass() {
   document.addEventListener("pointermove", e => {
     glassPt = e;
-    if (!glassRaf) glassRaf = requestAnimationFrame(() => {
-      glassRaf = 0;
+    if (!lightRaf) lightRaf = requestAnimationFrame(() => {
+      lightRaf = 0;
       if (!document.body.classList.contains("glass")) return;
-      root.querySelectorAll(".p").forEach(p => {
-        const r = p.getBoundingClientRect();
-        p.style.setProperty("--mx", (glassPt.clientX - r.left).toFixed(0) + "px");
-        p.style.setProperty("--my", (glassPt.clientY - r.top).toFixed(0) + "px");
-      });
+      const p = glassPt.target.closest && glassPt.target.closest(".p");
+      if (glassOn && glassOn !== p) glassOn.style.setProperty("--mx", "-400px");
+      glassOn = p;
+      if (!p) return;
+      const r = p.getBoundingClientRect();
+      p.style.setProperty("--mx", (glassPt.clientX - r.left).toFixed(0) + "px");
+      p.style.setProperty("--my", (glassPt.clientY - r.top).toFixed(0) + "px");
     });
   });
-  document.addEventListener("pointerleave", () => root.querySelectorAll(".p").forEach(p => p.style.setProperty("--mx", "-400px")));
+  document.addEventListener("pointerleave", () => { if (glassOn) glassOn.style.setProperty("--mx", "-400px"); glassOn = null; });
 }
-
 // Home effect, picked in Personalize. "water": the wallpaper ripples where the pointer moves (a small wave
 // simulation bends a copy of the wallpaper in WebGL). "fog": the wallpaper mists over, clears where you rub,
 // then slowly fogs back. Both draw into #fx, under the colour grade, on the home screen only.
@@ -306,7 +369,7 @@ void main() {
   o = vec4(c, min(m * 30., 1.));
 }`;
 function waterSetup(cv, img) {
-  const g = wallGeom(img), d = Math.min(devicePixelRatio || 1, 1.5);
+  const g = wallGeom(img), d = 1;
   cv.width = Math.round(g.w * d); cv.height = Math.round(g.h * d);
   const gl = cv.getContext("webgl2", { premultipliedAlpha: false, antialias: false }); if (!gl) return;
   const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); return s; };
@@ -358,25 +421,26 @@ function waterFrame() {
 
 // ---- fog ----
 function fogSetup(cv, img) {
-  const g = wallGeom(img);
-  cv.width = Math.round(g.w); cv.height = Math.round(g.h);
+  const g = wallGeom(img), k = .5; // half resolution: the mist is blurred, so nobody can tell
+  cv.width = Math.round(g.w * k); cv.height = Math.round(g.h * k);
   const fog = document.createElement("canvas"); fog.width = cv.width; fog.height = cv.height;
-  const f = fog.getContext("2d");
-  f.filter = `blur(22px) saturate(${(st.settings.sat / 100 * .8).toFixed(2)}) brightness(1.15)`;
+  const f = fog.getContext("2d"); f.scale(k, k);
+  f.filter = `blur(11px) saturate(${(st.settings.sat / 100 * .8).toFixed(2)}) brightness(1.15)`;
   f.drawImage(img, g.ox, g.oy, g.iw, g.ih);
   f.filter = "none";
-  f.fillStyle = "rgba(215,222,240,.16)"; f.fillRect(0, 0, fog.width, fog.height);
-  for (let n = fog.width * fog.height / 700; n > 0; n--) { // condensation beads
-    const x = Math.random() * fog.width, y = Math.random() * fog.height, r = .4 + Math.random() * Math.random() * 2.6;
+  f.fillStyle = "rgba(215,222,240,.16)"; f.fillRect(0, 0, g.w, g.h);
+  for (let n = g.w * g.h / 700; n > 0; n--) { // condensation beads
+    const x = Math.random() * g.w, y = Math.random() * g.h, r = .4 + Math.random() * Math.random() * 2.6;
     f.fillStyle = `rgba(255,255,255,${(.05 + Math.random() * .2).toFixed(2)})`;
     f.beginPath(); f.arc(x, y, r, 0, 7); f.fill();
   }
   const c = cv.getContext("2d"); c.drawImage(fog, 0, 0);
+  c.setTransform(k, 0, 0, k, 0, 0); // rubbing works in screen coordinates
   FX.fog = { c, fog, g, dirty: 0 };
   // cleared patches mist over again over about half a minute
   FX.timer = setInterval(() => {
-    const F = FX.fog; if (!F || !F.dirty || document.hidden) return;
-    c.globalAlpha = .008; c.drawImage(fog, 0, 0); c.globalAlpha = 1;
+    const F = FX.fog; if (!F || !F.dirty || document.hidden || document.body.classList.contains("asleep")) return;
+    c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = .008; c.drawImage(fog, 0, 0); c.restore();
     if (++F.dirty > 500) F.dirty = 0;
   }, 100);
 }
@@ -416,6 +480,7 @@ function placePeek() {
   x = clamp(x, a.left + 8, a.right - W - 8);
   const y = clamp(t.top + t.height / 2 - H / 2, a.top + 8, a.bottom - H - 8);
   Object.assign(pop.style, { left: x - a.left + "px", top: y - a.top + "px", width: W + "px", height: H + "px" });
+  placeGlass();
 }
 function sendLiveRect() {
   const el = $("lv"); if (!el) return;
@@ -444,6 +509,7 @@ function initArrange() {
     const a = area.getBoundingClientRect(), r = d.w.getBoundingClientRect();
     const x = clamp(Math.round((d.ox + dx) / 8) * 8, 0, a.width - r.width), y = clamp(Math.round((d.oy + dy) / 8) * 8, 0, a.height - r.height);
     Object.assign(d.w.style, { left: x + "px", top: y + "px", right: "auto", bottom: "auto" });
+    placeGlass();
   });
   const end = () => {
     const d = dragging; dragging = null; if (!d) return;
@@ -464,6 +530,7 @@ function applyArrange() {
     const p = L[w.id];
     Object.assign(w.style, p ? { left: p.x + "px", top: p.y + "px", right: "auto", bottom: "auto" } : { left: "", top: "", right: "", bottom: "" });
   });
+  placeGlass();
 }
 const fmtTok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n);
 function resetLabel(iso) {
@@ -492,7 +559,8 @@ function renderUsage() {
 }
 setInterval(() => { if (VIEW === "desktop") renderUsage(); }, 60000);
 let lastDay = -1;
-function tickClock() {
+const awake = () => !document.body.classList.contains("asleep");
+function tickClock() { // keeps running while covered: one small update a second, so the clock is never stale
   const d = new Date(), f = fmtTime(d);
   $("ct").classList.toggle("disp", !!st.settings.dispClock);
   $("ct").innerHTML = `${f.t}${f.ap ? `<small>${f.ap}</small>` : ""}`;
@@ -549,14 +617,17 @@ async function loadWeather() {
   } catch (e) { $("wdesc").textContent = "Weather offline"; }
 }
 setInterval(() => { if (VIEW === "desktop") loadWeather(); }, 15 * 60 * 1000);
-function setRing(i, v) { const e = $("ring" + i); if (e) e.setAttribute("stroke-dasharray", `${(clamp(v, 0, 100) / 100 * 94.2).toFixed(1)} 94.2`); }
+function setRing(i, v) { const e = $("ring" + i); if (Math.abs((shown["r" + i] ?? -9) - v) < 2) return; shown["r" + i] = v; if (e) e.setAttribute("stroke-dasharray", `${(clamp(v, 0, 100) / 100 * 94.2).toFixed(1)} 94.2`); }
+// Bars and rings only move for changes of 2 points or more; CPU jitters constantly and each move repaints the glass.
+const shown = {};
+function bar(id, v) { if (Math.abs((shown[id] ?? -9) - v) < 2) return; shown[id] = v; $(id).style.transform = `scaleX(${clamp(v, 0, 100) / 100})`; }
 function renderStats() {
   const s = st.stats; if (!s || !$("scpu")) return;
-  $("scpu").style.width = s.cpu + "%"; $("vcpu").textContent = s.cpu + "%";
-  $("smem").style.width = s.mem + "%"; $("vmem").textContent = s.memGb + "G";
-  $("sdisk").style.width = s.disk + "%"; $("vdisk").textContent = s.disk + "%";
+  bar("scpu", s.cpu); $("vcpu").textContent = s.cpu + "%";
+  bar("smem", s.mem); $("vmem").textContent = s.memGb + "G";
+  bar("sdisk", s.disk); $("vdisk").textContent = s.disk + "%";
   $("rbat").style.display = s.battery < 0 ? "none" : "";
-  $("sbat").style.width = Math.max(0, s.battery) + "%"; $("vbat").textContent = s.battery + "%" + (s.charging ? " ⚡" : "");
+  bar("sbat", Math.max(0, s.battery)); $("vbat").textContent = s.battery + "%" + (s.charging ? " ⚡" : "");
   $("vup").textContent = s.uptime;
   setRing(0, s.cpu); setRing(1, s.mem); setRing(2, s.battery < 0 ? 100 : s.battery); setRing(3, s.disk);
 }
@@ -567,9 +638,12 @@ function renderMedia() {
   $("mar").textContent = has ? m.artist : "Spotify or YouTube";
   $("mpp").className = "ti " + (m && m.playing ? "ti-player-pause" : "ti-player-play");
 }
+let vizRest = false;
 function tickViz() {
   const on = st.media && st.media.playing, t = Date.now();
-  [...$("viz").children].forEach((s, i) => s.style.height = on ? (15 + Math.abs(Math.sin(t / 400 + i * .7)) * 60 + Math.random() * 25) + "%" : "8%");
+  if (document.body.classList.contains("asleep") || (!on && vizRest)) return;
+  vizRest = !on;
+  [...$("viz").children].forEach((s, i) => s.style.transform = `scaleY(${on ? ((15 + Math.abs(Math.sin(t / 400 + i * .7)) * 60 + Math.random() * 25) / 100).toFixed(2) : .08})`);
 }
 // "Waiting on you": Claude Code sessions that asked you something (a question with answer buttons, a choice,
 // a plan) or seem stuck on a permission prompt, drawn as an ordered-dither tile in the Claude colour (--acc2, like the spark). Dark pixels stay
@@ -589,10 +663,11 @@ function renderReady() {
   $("rrows").innerHTML = readyRows.map(r => `<div class="rr ${r.kind}"><b>${esc(r.title)}</b><span>${tag(r)}</span></div>`).join("");
 }
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-let rdImg = null, rdText = "", rdMask = null;
+let rdImg = null, rdText = "", rdMask = null, rdSkip = 0;
 const rdI = new Float32Array(80 * 66);
-function readyFrame() {
-  const cv = $("rdc"); if (!cv || document.hidden || !st.settings.widgets) return;
+function readyFrame(force) {
+  const cv = $("rdc"); if (!cv || document.hidden || !st.settings.widgets || document.body.classList.contains("asleep")) return;
+  if (!force && !readyCount && !readyRows.length && ++rdSkip % 4) return; // the quiet drift is slow; fewer frames are enough
   const W = 80, H = 66, t = performance.now(), I = rdI;
   if (!rdImg) rdImg = cv.getContext("2d").createImageData(W, H);
   if (!readyPal || ++readyTick % 40 === 0) {
@@ -1049,7 +1124,11 @@ function onMsg(m) {
       st.settings = Object.assign({}, DEF, m.settings || {});
       placeBackdrop(); applyTheme();
       ({ desktop: renderDesktop, topbar: renderTopbar, dock: renderDock, launcher: renderLauncher, personalize: renderPers, ambient: renderAmbient, calendar: renderCalendarView, preview: renderPreview })[VIEW]();
-      if (!st.ready) { initGlass(); if (VIEW === "desktop") initHomeFx(); }
+      if (!st.ready) {
+        initGlass(); if (VIEW === "desktop") initHomeFx();
+        new MutationObserver(placeGlass).observe(root, { childList: true, subtree: true });
+        addEventListener("resize", () => { placeBackdrop(); glassSoon(); });
+      }
       st.ready = true;
       if (fresh && VIEW === "personalize") setWall(DEF.wall, true);
       break;
@@ -1064,12 +1143,16 @@ function onMsg(m) {
     case "config": st.config = m.config; dockSig = ""; if (VIEW === "dock") renderDock(); break;
     case "windows": st.windows = m; if (VIEW === "dock") renderDock(); if (VIEW === "topbar") renderTopbarDyn(); if (VIEW === "launcher" && $("lq") && !$("lq").value) filterLauncher(); break;
     case "icons": Object.assign(st.icons, m.map); if (VIEW === "dock") renderDock(); if (VIEW === "launcher" && $("res")) drawResults(); break;
-    case "stats": st.stats = m; if (VIEW === "desktop") renderStats(); if (VIEW === "topbar") renderTopbarDyn(); break;
-    case "media": st.media = m; if (VIEW === "desktop") renderMedia(); if (VIEW === "topbar") renderTopbarDyn(); break;
-    case "sessions": st.sessions = m.list; st.waiting = m.waiting || []; if (VIEW === "desktop") { renderSessions(); renderReady(); } break;
-    case "usage": st.usage = m; if (VIEW === "desktop") renderUsage(); break;
+    case "stats": st.stats = m; if (VIEW === "desktop" && awake()) renderStats(); if (VIEW === "topbar") renderTopbarDyn(); break;
+    case "media": st.media = m; if (VIEW === "desktop" && awake()) renderMedia(); if (VIEW === "topbar") renderTopbarDyn(); break;
+    case "sessions": st.sessions = m.list; st.waiting = m.waiting || []; if (VIEW === "desktop" && awake()) { renderSessions(); renderReady(); } break;
+    case "usage": st.usage = m; if (VIEW === "desktop" && awake()) renderUsage(); break;
     case "live":
       if (VIEW === "desktop" && $("lv")) { $("lempty").style.display = m.has ? "none" : ""; $("ltitle").textContent = m.has ? m.title || "" : ""; }
+      break;
+    case "awake": // covered by a maximized app: skip updates nobody can see, and catch up when visible again
+      document.body.classList.toggle("asleep", !m.on);
+      if (m.on && $("ct")) { tickClock(); renderStats(); renderMedia(); renderSessions(); renderReady(); renderUsage(); readyFrame(true); }
       break;
     case "resetLayout": if (VIEW === "desktop") setSettings({ layout: {} }); break;
     case "preview": if (VIEW === "preview") drawPreview(m); break;

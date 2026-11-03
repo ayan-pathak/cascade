@@ -264,7 +264,7 @@ namespace Cascade
                     w.Ready(InitFor(w));
                     if (iconMap.Count > 0) w.Send(new { type = "icons", map = iconMap });
                     foreach (var o in new[] { lastWindows, lastStats, lastMedia, lastSessions, lastEvents, lastUsage }) if (o != null) w.Send(o);
-                    if (w == desktop) liveSig = "";
+                    if (w == desktop) { liveSig = ""; w.Send(new { type = "awake", on = !homeCovered }); }
                     if (w == dock) w.Send(new { type = "dockMode", parked = dockAuto });
                     break;
                 case "dockSize":
@@ -372,6 +372,7 @@ namespace Cascade
                     w.Send(new { type = "startApps", list = startApps });
                     break;
                 case "openClaude": OpenApp("claude"); break;
+                case "jsError": if (++jsErrors <= 40) Log.Write(w.View + " script error: " + m.Str("msg") + " at " + m.Str("at")); break;
                 case "askClaude": AskClaude(); break;
                 case "desktopMenu":
                     Menu(("Personalize", () => ShowPopup(personalize, false)),
@@ -634,6 +635,7 @@ namespace Cascade
             }
             if (Cfg.hideWindowsTaskbar) Taskbar.Enforce(St);
             DesktopMode(fg);
+            HomeCovered(windows);
             if (!desktop.BottomMost && fg == desktop.Handle) RaiseBars();
             if (!Native.IsWindowVisible(desktop.Handle) || Native.IsIconic(desktop.Handle)) Native.ShowWindow(desktop.Handle, Native.SW_SHOWNOACTIVATE);
             UpdateLive(windows);
@@ -749,6 +751,25 @@ namespace Cascade
             finally { usageBusy = false; }
         }
 
+        // When a maximized or full-screen app hides the home screen, tell it to pause its animations; there is
+        // nothing to see, and they otherwise keep the GPU busy. Covered means: the home screen isn't raised
+        // (show desktop) and some open, non-minimized app window fills the screen. Focus alone isn't enough to
+        // go on: after show desktop it often sits on the taskbar while a maximized app is back in front.
+        bool homeCovered;
+        int jsErrors;
+        void HomeCovered(List<WinInfo> windows)
+        {
+            if (desktop == null) return;
+            bool covered = desktop.BottomMost && windows.Any(w => Covering(w.Hwnd));
+            if (covered == homeCovered) return;
+            homeCovered = covered;
+            Log.Write(covered ? "home covered, pausing" : "home visible");
+            desktop.Send(new { type = "awake", on = !covered });
+        }
+        static bool Covering(IntPtr h) => Native.IsWindowVisible(h) && !Native.IsIconic(h)
+            && (Native.IsZoomed(h) || Native.GetWindowRect(h, out var r) && Covers(r, Native.Monitor(h).rcWork));
+        static bool Covers(RECT r, RECT m) => r.Left <= m.Left && r.Top <= m.Top && r.Right >= m.Right && r.Bottom >= m.Bottom;
+
         // "Show desktop" (Win+D, desktop click) raises the real desktop; lift the Cascade layer above it
         // while the desktop has focus, and send it back to the bottom once an app takes over.
         void DesktopMode(IntPtr fg)
@@ -756,7 +777,10 @@ namespace Cascade
             if (desktop == null || fg == IntPtr.Zero || WindowTracker.IsOwn(fg)) return;
             var cls = Native.Class(fg);
             bool onDesktop = cls == "WorkerW" || cls == "Progman";
-            if (onDesktop == !desktop.BottomMost) return;
+            // Check the window itself, not just our flag: bringing windows back can strip its topmost style
+            // while we still think it's raised, and then the shell desktop's icons cover the home screen.
+            bool raised = !desktop.BottomMost && (Native.GetWindowLong(desktop.Handle, Native.GWL_EXSTYLE) & 0x8) != 0; // WS_EX_TOPMOST
+            if (onDesktop ? raised : desktop.BottomMost) return;
             Log.Write("desktop mode " + onDesktop + " (" + cls + ")");
             desktop.BottomMost = !onDesktop;
             const uint f = Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE;
