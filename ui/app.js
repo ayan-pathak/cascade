@@ -724,7 +724,20 @@ function renderTopbar() {
     <div class="fgapp" id="fg"></div>
     <div class="bc" id="bc"><b id="bt"></b><span id="bdt"></span><span id="nev" style="color:var(--acc)"></span></div>
     <div class="br">
-      <button id="tmedia" title="Play / pause"><i class="ti ti-music"></i><span class="song" id="tsong"></span></button>
+      <div class="tm" id="tmedia">
+        <button id="tplay" title="Play / pause"><i class="ti ti-music"></i><span class="song" id="tsong"></span></button>
+        <div class="tmc">
+          <button data-m="prev" title="Previous"><i class="ti ti-player-skip-back"></i></button>
+          <button data-m="play" title="Play / pause"><i class="ti ti-player-play"></i></button>
+          <button data-m="next" title="Next"><i class="ti ti-player-skip-forward"></i></button>
+          <span class="yt" id="tyt">
+            <span class="spd"><button data-sp="-1" title="Slower">−</button><b id="tspd">1×</b><button data-sp="1" title="Faster">+</button></span>
+            <button data-w="pip" title="Picture-in-picture: a small video that floats over everything; drag to move, drag its edges to resize"><i class="ti ti-picture-in-picture"></i></button>
+            <button data-w="min" title="Minimise the YouTube window"><i class="ti ti-window-minimize"></i></button>
+            <button data-w="max" title="Bring up the YouTube window, maximised"><i class="ti ti-window-maximize"></i></button>
+          </span>
+        </div>
+      </div>
       <button id="tnet" title="Quick settings"><i class="ti ti-wifi" id="inet"></i><i class="ti ti-volume"></i></button>
       <button id="tbat" title="Quick settings"><i class="ti ti-battery-3" id="ibat"></i><span id="vbat"></span></button>
       <button id="tnote" title="Notifications"><i class="ti ti-bell"></i></button>
@@ -734,7 +747,10 @@ function renderTopbar() {
   $("bc").title = "Open Google Calendar (Ctrl+Alt+C)";
   $("tnote").onclick = () => send("keys", { name: "notify" });
   $("tnet").onclick = $("tbat").onclick = () => send("keys", { name: "quick" });
-  $("tmedia").onclick = () => send("media", { action: "play" });
+  $("tplay").onclick = () => send("media", { action: "play" });
+  $("tmedia").querySelectorAll("[data-m]").forEach(b => b.onclick = () => send("media", { action: b.dataset.m }));
+  $("tmedia").querySelectorAll("[data-sp]").forEach(b => b.onclick = () => send("mediaSpeed", { dir: +b.dataset.sp }));
+  $("tmedia").querySelectorAll("[data-w]").forEach(b => b.onclick = () => send("mediaWindow", { action: b.dataset.w }));
   $("tsearch").onclick = () => send("open", { view: "launcher" });
   $("tpers").onclick = () => send("open", { view: "personalize" });  document.addEventListener("contextmenu", e => { e.preventDefault(); send("desktopMenu"); });
   const tick = () => { const d = new Date(), f = fmtTime(d); $("bt").textContent = f.t + (f.ap ? " " + f.ap : ""); $("bdt").textContent = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); };
@@ -754,13 +770,15 @@ function renderNextEvent() {
 function renderTopbarDyn() {
   if (!$("ws")) return;
   const d = st.desktops;
-  $("ws").innerHTML = Array.from({ length: Math.max(1, d.count) }, (_, i) => `<button class="${i === d.current ? "on" : ""}" data-i="${i}">${i + 1}</button>`).join("");
+  $("ws").innerHTML = Array.from({ length: Math.max(1, d.count) }, (_, i) => `<button class="${i === d.current ? "on" : ""}" data-i="${i}" title="Virtual desktop ${i + 1} of ${Math.max(1, d.count)}${i === d.current ? " (you are here)" : ": click to switch"}. Win+Ctrl+D adds one.">${i + 1}</button>`).join("");
   $("ws").querySelectorAll("button").forEach(b => b.onclick = () => send("desktop", { index: +b.dataset.i }));
   const fg = st.windows.fg;
   $("fg").innerHTML = fg ? `<i class="ti ti-point-filled"></i>${esc(fg.app)}<span style="color:var(--dim)"> — ${esc(fg.title)}</span>` : "";
   const m = st.media;
   $("tmedia").style.display = m && m.title ? "" : "none";
   if (m && m.title) $("tsong").textContent = `${m.title} — ${m.artist}`;
+  $("tyt").style.display = m && m.youtube ? "" : "none";
+  if (m && m.youtube) $("tspd").textContent = (+m.speed || 1) + "×";
   const s = st.stats;
   if (s) {
     $("inet").className = "ti " + (s.net === "wifi" ? "ti-wifi" : s.net === "ethernet" ? "ti-network" : "ti-wifi-off");

@@ -63,11 +63,16 @@ namespace Cascade
     public static class Media
     {
         static string lastTitle, lastArtist, lastSource;
+        // The browser window whose active tab is YouTube, for the top bar's speed and window buttons.
+        public static IntPtr YouTube;
+        // YouTube's playback speed as last set from Cascade (YouTube keeps it from video to video).
+        public static double Speed = 1;
 
         // Reads the now-playing track from Spotify or YouTube window titles.
         public static object Read()
         {
             bool playing = false;
+            YouTube = IntPtr.Zero;
             foreach (var w in WindowTracker.AllOf("Spotify"))
             {
                 if (w.Title.StartsWith("Spotify", StringComparison.OrdinalIgnoreCase)) { if (lastSource == "Spotify") playing = false; continue; }
@@ -83,10 +88,50 @@ namespace Cascade
                     var m = Regex.Match(w.Title, @"^(?:\(\d+\)\s*)?(.+?) - YouTube( Music)?\b");
                     if (!m.Success) continue;
                     lastTitle = m.Groups[1].Value; lastArtist = m.Groups[2].Success ? "YouTube Music" : "YouTube"; lastSource = w.Proc; playing = true;
+                    YouTube = w.Hwnd;
                     break;
                 }
             }
-            return new { type = "media", title = lastTitle, artist = lastArtist, source = lastSource, playing };
+            return new { type = "media", title = lastTitle, artist = lastArtist, source = lastSource, playing, youtube = YouTube != IntPtr.Zero, speed = Speed };
+        }
+
+        // YouTube's own keyboard shortcuts only reach the page while its window has focus, so focus it, press the
+        // key chords, and (unless the result should stay in view) give focus back or minimize it again.
+        public static async void YouTubeKeys(bool stay, params byte[][] chords)
+        {
+            var h = YouTube;
+            if (h == IntPtr.Zero || !Native.IsWindow(h)) return;
+            var prev = Native.GetForegroundWindow();
+            bool wasMin = Native.IsIconic(h);
+            Native.Activate(h);
+            await System.Threading.Tasks.Task.Delay(150);
+            if (Native.GetForegroundWindow() != h) { Log.Write("youtube: couldn't focus the window"); return; }
+            foreach (var c in chords) { Native.Keys(c); await System.Threading.Tasks.Task.Delay(25); }
+            if (stay) return;
+            await System.Threading.Tasks.Task.Delay(120);
+            if (wasMin) Native.ShowWindow(h, Native.SW_MINIMIZE);
+            else if (prev != IntPtr.Zero && prev != h && !WindowTracker.IsOwn(prev)) Native.Activate(prev);
+        }
+
+        // Sets YouTube's speed exactly. Its shortcuts only step (Shift+, slower, Shift+. faster, 0.25x to 2x in
+        // quarters) and it never tells us where it is, so step all the way down to 0.25x, then up to the target.
+        public static void ChangeSpeed(int dir)
+        {
+            if (YouTube == IntPtr.Zero) return;
+            var target = Math.Max(.25, Math.Min(2, Speed + dir * .25));
+            Speed = target;
+            byte[] slower = { 0x10, 0xBC }, faster = { 0x10, 0xBE };
+            var chords = Enumerable.Repeat(slower, 8).Concat(Enumerable.Repeat(faster, (int)Math.Round((target - .25) / .25))).ToArray();
+            YouTubeKeys(false, chords);
+        }
+
+        public static void Window(string action)
+        {
+            var h = YouTube;
+            if (h == IntPtr.Zero || !Native.IsWindow(h)) return;
+            if (action == "min") Native.ShowWindow(h, Native.SW_MINIMIZE);
+            else if (action == "max") { Native.ShowWindow(h, Native.SW_MAXIMIZE); Native.Activate(h); }
+            else if (action == "pip") Pip.Open(h);
         }
 
         public static void Control(string action)

@@ -9,7 +9,7 @@ if (-not $csc) { throw 'Could not find the Roslyn C# compiler (Visual Studio Bui
 
 New-Item -ItemType Directory -Force $bin | Out-Null
 $refs = @(
-  "$fw\WPF\PresentationFramework.dll", "$fw\WPF\PresentationCore.dll", "$fw\WPF\WindowsBase.dll",
+  "$fw\WPF\PresentationFramework.dll", "$fw\WPF\PresentationCore.dll", "$fw\WPF\WindowsBase.dll", "$fw\WPF\UIAutomationClient.dll", "$fw\WPF\UIAutomationTypes.dll",
   "$fw\System.Xaml.dll", "$fw\System.Web.Extensions.dll", "$fw\System.Windows.Forms.dll", "$fw\System.Drawing.dll",
   "$fw\Microsoft.CSharp.dll", "$fw\System.Core.dll", "$fw\System.dll", "$fw\System.Security.dll",
   "$here\lib\Microsoft.Web.WebView2.Core.dll", "$here\lib\Microsoft.Web.WebView2.Wpf.dll"

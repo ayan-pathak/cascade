@@ -306,6 +306,17 @@ body[data-view=preview]{background:rgb(var(--tint))}
 .br>button:hover{background:rgba(255,255,255,.07);color:var(--txt)}
 .br i{font-size:15px}
 .br .song{max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* now playing: hover the song for playback, YouTube speed, mini player and window buttons */
+.tm{display:flex;align-items:center;gap:1px}
+.tm button{display:flex;align-items:center;gap:6px;height:24px;padding:0 6px;border-radius:7px}
+.tm button:hover{background:rgba(255,255,255,.07);color:var(--txt)}
+.tmc{display:none;align-items:center;gap:1px}
+.tm:hover .tmc{display:flex}
+.tm:hover .song{max-width:130px}
+.tm .yt{display:flex;align-items:center;gap:1px;margin-left:3px;padding-left:4px;border-left:1px solid var(--line)}
+.tm .spd{display:flex;align-items:center}
+.tm .spd button{padding:0 5px;font-size:14px}
+.tm .spd b{min-width:32px;text-align:center;font-weight:500;color:var(--txt)}
 
 /* ---------- dock ---------- */
 #dock{left:50%;transform:translateX(-50%);bottom:10px;height:56px;padding:0 10px;display:flex;align-items:center;gap:2px;border-radius:20px;white-space:nowrap}

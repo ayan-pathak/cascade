@@ -36,6 +36,10 @@ Claude on the home screen:
 - The Home button at the left of the dock shows the home screen; press it again to bring your windows back.
 - Claude · plan limits shows your 5-hour and weekly limits with reset times. It uses Claude Code's sign-in from `~/.claude/.credentials.json`, renews it the same way Claude Code does when it expires, and saves it back so both stay signed in. Tokens are sent only to Anthropic and never logged. Connect it once: run `claude` in a terminal, type `/login`, and click Authorize in your browser. Without a sign-in the tile shows usage counted from your local session files. Click the tile for Claude's usage settings.
 
+Top bar:
+- The number at the far left is your Windows virtual desktop (Win+Ctrl+D adds one; click a number to switch). Next to it is the app you're using and its window title.
+- Now playing: click the song to play or pause. Rest the pointer on it for previous, play, next and, for YouTube, the speed (− and +, 0.25× to 2×), picture-in-picture (a small video that floats over everything; drag it to move, drag its edges to resize), and minimise or maximise the YouTube window. Speed and picture-in-picture briefly bring the browser forward, since YouTube and Chrome only take these from their own window.
+
 Dock: rest the pointer on a running app to see live previews of its windows; click one to switch to it, or use × or a middle-click to close it. Click to open or switch, click again to minimise, middle-click for a new window, right-click to pin, unpin or close. Right-click the desktop or top bar for Cascade's menu (including Quit).
 
 ## Customising

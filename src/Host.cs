@@ -354,6 +354,12 @@ namespace Cascade
                     }
                     break;
                 case "media": Media.Control(m.Str("action")); break;
+                case "mediaSpeed":
+                    Media.ChangeSpeed(m.Num("dir") > 0 ? 1 : -1);
+                    lastMedia = Media.Read();
+                    Broadcast(lastMedia, desktop, topbar);
+                    break;
+                case "mediaWindow": Media.Window(m.Str("action")); break;
                 case "cmd": Command(m.Str("name")); break;
                 case "addPhoto": AddPhoto(); break;
                 case "removePhoto":
