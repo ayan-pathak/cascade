@@ -2,6 +2,15 @@
 
 A dark Pacific Northwest desktop for Windows 11: photo wallpaper with auto-picked accent colours, tile widgets, a top bar, a tinted dock with a wave hover, window layouts and a launcher.
 
+## Install
+
+1. Download `Cascade-<version>.zip` from [Releases](https://github.com/ayan-pathak/cascade/releases/latest) and extract it.
+2. Double-click `Install.cmd`. It installs for your account only (no admin rights), starts Cascade and sets it to start at sign-in.
+
+To remove it, double-click `Uninstall.cmd`: the Windows taskbar and your previous wallpaper come back.
+
+Needs Windows 11 (or Windows 10 with the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)). The download isn't code-signed, so SmartScreen may warn the first time: choose More info, then Run anyway.
+
 Installed copy: `%LOCALAPPDATA%\Cascade` (starts at sign-in from the Startup folder).
 
 ## Shortcuts
@@ -66,6 +75,7 @@ To measure Cascade (Cascade.exe plus its WebView2 processes):
 
 ```
 .\install.ps1              # build, copy to %LOCALAPPDATA%\Cascade, start at sign-in
+.\package.ps1 -Version 0.2.0   # build the release zip in dist\ (Install.cmd, Uninstall.cmd, app\, setup\)
 .\uninstall.ps1            # quit, restore taskbar and old wallpaper, remove startup
 .\uninstall.ps1 -RemoveFiles
 ```
