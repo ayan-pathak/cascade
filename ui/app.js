@@ -728,11 +728,11 @@ function renderTopbar() {
         <button id="tplay" title="Play / pause"><i class="ti ti-music"></i><span class="song" id="tsong"></span></button>
         <div class="tmc">
           <button data-m="prev" title="Previous"><i class="ti ti-player-skip-back"></i></button>
-          <button data-m="play" title="Play / pause"><i class="ti ti-player-play"></i></button>
+          <button class="keep" data-m="play" title="Play / pause"><i class="ti ti-player-play"></i></button>
           <button data-m="next" title="Next"><i class="ti ti-player-skip-forward"></i></button>
           <span class="yt" id="tyt">
             <span class="spd"><button data-sp="-1" title="Slower">−</button><b id="tspd">1×</b><button data-sp="1" title="Faster">+</button></span>
-            <button data-w="pip" title="Picture-in-picture: a small video that floats over everything; drag to move, drag its edges to resize"><i class="ti ti-picture-in-picture"></i></button>
+            <button class="keep" data-w="pip" title="Picture-in-picture: a small video that floats over everything; drag to move, drag its edges to resize"><i class="ti ti-picture-in-picture"></i></button>
             <button data-w="min" title="Minimise the YouTube window"><i class="ti ti-window-minimize"></i></button>
             <button data-w="max" title="Bring up the YouTube window, maximised"><i class="ti ti-window-maximize"></i></button>
           </span>
