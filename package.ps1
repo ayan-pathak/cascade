@@ -16,6 +16,7 @@ Copy-Item "$here\bin\Cascade.exe", "$here\bin\*.dll" "$stage\app"
 Copy-Item "$here\bin\ui" "$stage\app\ui" -Recurse
 Copy-Item "$here\config.json" "$stage\app\config.json"
 Copy-Item "$here\packaging\Setup.ps1", "$here\uninstall.ps1" "$stage\setup"
+Copy-Item "$here\LICENSE" "$stage\LICENSE.txt"
 # cmd needs Windows line endings
 foreach ($f in 'Install.cmd', 'Uninstall.cmd', 'README.txt') {
   $text = [IO.File]::ReadAllText("$here\packaging\$f") -replace "`r?`n", "`r`n"

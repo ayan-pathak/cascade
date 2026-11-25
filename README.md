@@ -83,3 +83,7 @@ To measure Cascade (Cascade.exe plus its WebView2 processes):
 If Cascade ever crashes and the taskbar stays hidden: `%LOCALAPPDATA%\Cascade\Cascade.exe --restore`.
 
 Needs the WebView2 runtime (built into Windows 11) and Visual Studio Build Tools to rebuild.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
